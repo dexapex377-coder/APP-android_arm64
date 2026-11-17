@@ -36,8 +36,20 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v2
+      - name: Setup Android SDK (manual cmdline-tools install)
+        run: |
+          # android-actions/setup-android breaks because sdkmanager 'tools' package no longer exists.
+          # Install cmdline-tools directly from Google instead.
+          mkdir -p "$ANDROID_HOME/cmdline-tools"
+          wget -q "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip" -O /tmp/cmdline-tools.zip
+          unzip -q /tmp/cmdline-tools.zip -d "$ANDROID_HOME/cmdline-tools/"
+          if [ -d "$ANDROID_HOME/cmdline-tools/cmdline-tools" ]; then
+            mv "$ANDROID_HOME/cmdline-tools/cmdline-tools"/* "$ANDROID_HOME/cmdline-tools/"
+            rmdir "$ANDROID_HOME/cmdline-tools/cmdline-tools"
+          fi
+          yes | "$ANDROID_HOME/cmdline-tools/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "$ANDROID_HOME/cmdline-tools/bin/sdkmanager" && echo "cmdline-tools OK ✓"
 
       - name: Install SDK platform, build-tools, NDK, CMake
         run: |
