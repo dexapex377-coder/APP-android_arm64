@@ -826,6 +826,9 @@ def km_view2d(_params):
         ("view2d.pan", {"type": 'MIDDLEMOUSE', "value": 'PRESS'}, None),
         ("view2d.pan", {"type": 'MIDDLEMOUSE', "value": 'PRESS', "shift": True}, None),
         ("view2d.pan", {"type": 'TRACKPADPAN', "value": 'ANY'}, None),
+        # Touch: one finger drag scrolls headers, tool headers and tab strips. CLICK_DRAG
+        # keeps a tap available for the widget underneath, as in "User Interface" below.
+        ("view2d.pan", {"type": 'LEFTMOUSE', "value": 'CLICK_DRAG'}, None),
         ("view2d.scroll_right", {"type": 'WHEELDOWNMOUSE', "value": 'PRESS', "ctrl": True}, None),
         ("view2d.scroll_left", {"type": 'WHEELUPMOUSE', "value": 'PRESS', "ctrl": True}, None),
         ("view2d.scroll_down", {"type": 'WHEELDOWNMOUSE', "value": 'PRESS', "shift": True}, None),
@@ -867,6 +870,11 @@ def km_view2d_buttons_list(_params):
         # Pan scroll
         ("view2d.pan", {"type": 'MIDDLEMOUSE', "value": 'PRESS'}, None),
         ("view2d.pan", {"type": 'TRACKPADPAN', "value": 'ANY'}, None),
+        # Touch: one finger drag scrolls. CLICK_DRAG, not PRESS, because the window manager
+        # only forms the drag once the threshold is crossed, so a tap still presses the widget
+        # under the finger and only a real drag pans. See ui_but_touch_scroll_region() in
+        # interface_handlers.cc, which is what leaves the press unconsumed for this to work.
+        ("view2d.pan", {"type": 'LEFTMOUSE', "value": 'CLICK_DRAG'}, None),
         ("view2d.scroll_down", {"type": 'WHEELDOWNMOUSE', "value": 'PRESS'}, None),
         ("view2d.scroll_up", {"type": 'WHEELUPMOUSE', "value": 'PRESS'}, None),
         ("view2d.scroll_down", {"type": 'PAGE_DOWN', "value": 'PRESS', "repeat": True},
@@ -917,6 +925,16 @@ def km_user_interface(_params):
         ("anim.keyingset_button_add", {"type": 'K', "value": 'PRESS'}, None),
         ("anim.keyingset_button_remove", {"type": 'K', "value": 'PRESS', "alt": True}, None),
         ("ui.reset_default_button", {"type": 'BACK_SPACE', "value": 'PRESS'}, {"properties": [("all", True)]}),
+        # Touch: one finger drag scrolls the sidebar (RGN_TYPE_UI) and the tool bar
+        # (RGN_TYPE_TOOLS). This keymap is the one those regions get and nothing else:
+        # ed_default_handlers() in area.cc hands a region its keymap from its keymapflag, and
+        # ED_KEYMAP_UI resolves to "User Interface". The "View2D" entry above is never
+        # consulted for them, which is why binding it there fixes the headers and the tab
+        # strips and leaves the sidebar and tool bar dead.
+        #
+        # Everything else that has this keymap -- the main region of the node editor and the
+        # outliner, where a left drag is box-select -- is filtered out in view_pan_invoke().
+        ("view2d.pan", {"type": 'LEFTMOUSE', "value": 'CLICK_DRAG'}, None),
         # UI lists (polls check if there's a UI list under the cursor).
         ("ui.list_start_filter", {"type": 'F', "value": 'PRESS', "ctrl": True}, None),
     ])
@@ -1092,7 +1110,7 @@ def km_property_editor(_params):
         ("buttons.start_filter", {"type": 'F', "value": 'PRESS', "ctrl": True}, None),
         ("buttons.clear_filter", {"type": 'F', "value": 'PRESS', "alt": True}, None),
         # Modifier panels
-        ("object.modifier_set_active", {"type": 'LEFTMOUSE', "value": 'PRESS'}, None),
+        ("object.modifier_set_active", {"type": 'LEFTMOUSE', "value": 'CLICK'}, None),
         ("object.modifier_remove", {"type": 'X', "value": 'PRESS'}, {"properties": [("report", True)]}),
         ("object.modifier_remove", {"type": 'DEL', "value": 'PRESS'}, {"properties": [("report", True)]}),
         ("object.modifier_copy", {"type": 'D', "value": 'PRESS', "shift": True}, None),
@@ -6900,7 +6918,7 @@ def km_3d_view_tool_toggle_select(params, *, fallback):
         {"space_type": 'VIEW_3D', "region_type": 'WINDOW'},
         {"items": [
             ("view3d.select", {"type": 'LEFTMOUSE', "value": 'PRESS'},
-             {"properties": [("deselect_all", False), ("toggle", True)]}),
+             {"properties": [("deselect_all", False), ("extend", True)]}),
         ]},
     )
 
