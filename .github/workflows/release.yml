@@ -39,17 +39,18 @@ jobs:
       - name: Setup Android SDK (manual cmdline-tools install)
         run: |
           # android-actions/setup-android breaks because sdkmanager 'tools' package no longer exists.
-          # Install cmdline-tools directly from Google instead.
-          mkdir -p "$ANDROID_HOME/cmdline-tools"
+          # Install cmdline-tools directly from Google into <sdk>/cmdline-tools/latest/ as sdkmanager expects.
+          mkdir -p "$ANDROID_HOME/cmdline-tools/latest"
           wget -q "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip" -O /tmp/cmdline-tools.zip
-          unzip -q /tmp/cmdline-tools.zip -d "$ANDROID_HOME/cmdline-tools/"
-          if [ -d "$ANDROID_HOME/cmdline-tools/cmdline-tools" ]; then
-            mv "$ANDROID_HOME/cmdline-tools/cmdline-tools"/* "$ANDROID_HOME/cmdline-tools/"
-            rmdir "$ANDROID_HOME/cmdline-tools/cmdline-tools"
+          unzip -q /tmp/cmdline-tools.zip -d "$ANDROID_HOME/cmdline-tools/latest/"
+          # The zip extracts into a nested cmdline-tools/ dir; flatten it into latest/
+          if [ -d "$ANDROID_HOME/cmdline-tools/latest/cmdline-tools" ]; then
+            mv "$ANDROID_HOME/cmdline-tools/latest/cmdline-tools"/* "$ANDROID_HOME/cmdline-tools/latest/"
+            rmdir "$ANDROID_HOME/cmdline-tools/latest/cmdline-tools"
           fi
-          echo "$ANDROID_HOME/cmdline-tools/bin" >> $GITHUB_PATH
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
           echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
-          ls "$ANDROID_HOME/cmdline-tools/bin/sdkmanager" && echo "cmdline-tools OK ✓"
+          ls "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" && echo "cmdline-tools OK ✓"
 
       - name: Accept SDK licenses
         run: |
