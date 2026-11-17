@@ -47,13 +47,17 @@ jobs:
             mv "$ANDROID_HOME/cmdline-tools/cmdline-tools"/* "$ANDROID_HOME/cmdline-tools/"
             rmdir "$ANDROID_HOME/cmdline-tools/cmdline-tools"
           fi
-          yes | "$ANDROID_HOME/cmdline-tools/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
-          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "$ANDROID_HOME/cmdline-tools/bin" >> $GITHUB_PATH
+          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
           ls "$ANDROID_HOME/cmdline-tools/bin/sdkmanager" && echo "cmdline-tools OK ✓"
+
+      - name: Accept SDK licenses
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
 
       - name: Install SDK platform, build-tools, NDK, CMake
         run: |
-          yes | sdkmanager "platforms;android-30" "platforms;android-36" "build-tools;30.0.3" "cmake;3.10.2.4988404" "ndk;21.4.7075529" > /dev/null 2>&1
+          sdkmanager "platforms;android-30" "platforms;android-36" "build-tools;30.0.3" "cmake;3.10.2.4988404" "ndk;21.4.7075529"
           echo "ANDROID_HOME=$ANDROID_HOME"
           ls "$ANDROID_HOME/ndk/21.4.7075529" > /dev/null && echo "NDK 21.4.7075529 installed ✓"
 
