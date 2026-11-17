@@ -6,10 +6,13 @@ __all__ = (
 )
 
 from sys import platform as _sys_platform
+from os.path import isfile as _isfile
 
 # Touch builds need a direct PRESS fallback for selection: the synthetic press
 # emitted for a tap can be consumed before the window manager forms KM_CLICK.
-IS_ANDROID = (_sys_platform == 'android')
+# CPython reports 'linux' on Android, so the file-system check is what actually
+# identifies this port when it runs inside the APK.
+IS_ANDROID = (_sys_platform == 'android') or _isfile("/system/build.prop")
 
 # ------------------------------------------------------------------------------
 # Developer Notes
