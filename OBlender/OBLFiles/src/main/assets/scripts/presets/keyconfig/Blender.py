@@ -86,14 +86,15 @@ class Prefs(bpy.types.KeyConfigPreferences):
         update=update_fn,
     )
 
-    # Experimental: only show with developer extras, see: #96544.
+    # 5.3 enables this unconditionally; the old developer-only gate left the
+    # tool key-map without the PRESS/CLICK pair that touch selection relies on.
     use_tweak_select_passthrough: BoolProperty(
         name="Tweak Select: Mouse Select & Move",
         description=(
             "The tweak tool is activated immediately instead of placing the cursor. "
-            "This is an experimental preference and may be removed"
+            "Enabled by default to match Blender 5.3 touch selection"
         ),
-        default=False,
+        default=True,
         update=update_fn,
     )
     # Experimental: only show with developer extras, see: #96544.
@@ -360,7 +361,7 @@ def load():
                 # Otherwise LMB activates the fallback tool and RMB always tweak-selects.
                 (kc_prefs.rmb_action != 'FALLBACK_TOOL')
             ),
-            use_tweak_select_passthrough=(show_developer_ui and kc_prefs.use_tweak_select_passthrough),
+            use_tweak_select_passthrough=kc_prefs.use_tweak_select_passthrough,
             use_tweak_tool_lmb_interaction=(
                 False if is_select_left else
                 (show_developer_ui and kc_prefs.use_tweak_tool_lmb_interaction)

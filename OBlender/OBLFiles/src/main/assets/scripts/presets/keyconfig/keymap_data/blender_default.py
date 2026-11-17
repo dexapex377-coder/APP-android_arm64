@@ -5,6 +5,12 @@ __all__ = (
     "Params",
 )
 
+from sys import platform as _sys_platform
+
+# Touch builds need a direct PRESS fallback for selection: the synthetic press
+# emitted for a tap can be consumed before the window manager forms KM_CLICK.
+IS_ANDROID = (_sys_platform == 'android')
+
 # ------------------------------------------------------------------------------
 # Developer Notes
 #
@@ -199,7 +205,11 @@ class Params:
 
         self.use_file_single_click = use_file_single_click
 
-        self.use_tweak_select_passthrough = use_tweak_select_passthrough
+        # 5.3 makes this the default instead of an experimental, developer-only
+        # preference. Its tool key-map emits both PRESS (with select_passthrough)
+        # and CLICK bindings, which is what makes touch selection survive a
+        # consumed PRESS (see #96544).
+        self.use_tweak_select_passthrough = not legacy
 
         self.use_fallback_tool = use_fallback_tool
 
@@ -1580,6 +1590,16 @@ def km_view3d(params):
         ("view3d.view_axis", {"type": 'NDOF_BUTTON_TOP', "value": 'PRESS', "shift": True},
          {"properties": [("type", 'TOP'), ("align_active", True)]}),
         # Selection.
+        # On Android the tap is synthesised as PRESS+RELEASE with the same
+        # timestamp. A tool or gizmo can consume that PRESS, which suppresses
+        # KM_CLICK and leaves the generic CLICK-only binding without an event.
+        # Keep a direct PRESS binding so tapping a mesh still selects it and
+        # tapping empty space still clears the selection.
+        *([(
+            "view3d.select",
+            {"type": params.select_mouse, "value": 'PRESS'},
+            {"properties": [("deselect_all", True)]},
+        )] if IS_ANDROID and params.select_mouse == 'LEFTMOUSE' else []),
         *_template_view3d_select(
             type=params.select_mouse,
             value=params.select_mouse_value_fallback,
