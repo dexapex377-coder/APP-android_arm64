@@ -18,7 +18,7 @@ jobs:
       - name: Checkout Blender-android_arm64 (headers for includes)
         uses: actions/checkout@v4
         with:
-          repository: apexmiguel9-hub/Blender-android_arm64
+          repository: dexapex377-coder/Blender-android_arm64
           ref: blender-v3.6-release
           path: Blender-android_arm64
           fetch-depth: 1
@@ -37,7 +37,7 @@ jobs:
           java-version: '17'
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v2
 
       - name: Install SDK platform, build-tools, NDK, CMake
         run: |
@@ -61,7 +61,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: blender-android-arm64-static-libs
-          repository: apexmiguel9-hub/Blender-android_arm64
+          repository: dexapex377-coder/Blender-android_arm64
           run-id: ${{ steps.get-run.outputs.run_id }}
           github-token: ${{ secrets.GH_PAT }}
           path: /tmp/blender-libs
