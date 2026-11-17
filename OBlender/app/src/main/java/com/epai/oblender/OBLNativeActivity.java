@@ -187,6 +187,13 @@ public class OBLNativeActivity extends NativeActivity
                                 String joined = String.join(",", strings);
                                 Log.d("OBL.DIAG", "enterKeyOff sending: " + joined);
                                 oblSetValueOff(joined);
+                                /* Latched modifiers: emit the key up so Blender's keymap sees
+                                 * the modifier release. */
+                                for (int k : keys) {
+                                    if (k == 0) GodotLib.key(KeyEvent.KEYCODE_SHIFT_LEFT, 0, 0, false, false);
+                                    else if (k == 1) GodotLib.key(KeyEvent.KEYCODE_CTRL_LEFT, 0, 0, false, false);
+                                    else if (k == 2) GodotLib.key(KeyEvent.KEYCODE_ALT_LEFT, 0, 0, false, false);
+                                }
                             }
 
                             @Override
@@ -198,6 +205,14 @@ public class OBLNativeActivity extends NativeActivity
                                 String joined = String.join(",", strings);
                                 Log.d("OBL.DIAG", "enterKeyOn sending: " + joined);
                                 oblSetValueOn(joined);
+                                /* Latched modifiers: emit the key down so Blender's keymap sees
+                                 * the modifier transition. Ordinals from OblSettingFragment:
+                                 * 0=Shift, 1=Ctrl, 2=Alt. */
+                                for (int k : keys) {
+                                    if (k == 0) GodotLib.key(KeyEvent.KEYCODE_SHIFT_LEFT, 0, 0, true, false);
+                                    else if (k == 1) GodotLib.key(KeyEvent.KEYCODE_CTRL_LEFT, 0, 0, true, false);
+                                    else if (k == 2) GodotLib.key(KeyEvent.KEYCODE_ALT_LEFT, 0, 0, true, false);
+                                }
                             }
 
                             @Override

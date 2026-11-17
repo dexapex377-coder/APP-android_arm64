@@ -568,13 +568,28 @@ public class OblSettingFragment extends View {
     private void showSettings() {
         Context ctx = getContext();
         if (ctx == null) return;
-        String[] items = {"Export to file", "Import from file", "Customize appearance", "Cancel"};
         new AlertDialog.Builder(ctx)
             .setCustomTitle(makeTitle(ctx, "Keyboard Settings"))
-            .setItems(items, (d, w) -> {
+            .setItems(new String[]{
+                "Export to file",
+                "Import from file",
+                "Customize appearance",
+                "Save changes",
+                "Cancel"
+            }, (d, w) -> {
                 if (w == 0) showExportDialog();
                 else if (w == 1) showFilePicker();
                 else if (w == 2) showCustomizeDialog();
+                else if (w == 3) {
+                    saveCustomization();
+                    invalidate();
+                    Toast.makeText(ctx, "Settings saved", Toast.LENGTH_SHORT).show();
+                }
+            })
+            .setNegativeButton("Discard", (d, w) -> {
+                loadCustomization();
+                invalidate();
+                Toast.makeText(ctx, "Changes discarded", Toast.LENGTH_SHORT).show();
             })
             .create().show();
     }
