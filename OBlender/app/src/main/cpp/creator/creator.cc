@@ -88,6 +88,7 @@ static bool g_dpi_initialized = false;
 
 #include "WM_api.h"
 #include "WM_toolsystem.h"
+#include "wm_window.h"
 
 #include "RNA_define.h"
 
@@ -377,9 +378,11 @@ void oblSetSculptToolRequest(const char *idname) {
  * smooth-wire ON from an older build, silently cancelling the new defaults.
  *
  * A/B switches (read once at startup; restart the app after changing):
- *   setprop debug.blender.perf_override 0   -> leave saved userpref untouched
- *   setprop debug.blender.viewport_aa 8     -> force 8x Workbench TAA/SMAA
- *   setprop debug.blender.smooth_wire 1     -> force overlay smooth-wire ON
+ *   setprop debug.blender.perf_override 0      -> leave saved userpref untouched
+ *   setprop debug.blender.render_scale 1.0     -> disable the 1.25x default (A/B)
+ *   setprop debug.blender.viewport_aa 8        -> force 8x Workbench TAA/SMAA
+ *   setprop debug.blender.smooth_wire 1        -> force overlay smooth-wire ON
+ *   setprop debug.blender.obl_fxaa 0           -> disable the cheap FXAA resolve
  */
 static int obl_android_prop_int(const char *name, int fallback)
 {
@@ -390,13 +393,23 @@ static int obl_android_prop_int(const char *name, int fallback)
   return fallback;
 }
 
+static float obl_android_prop_float(const char *name, float fallback)
+{
+  char value[PROP_VALUE_MAX] = {};
+  if (__system_property_get(name, value) > 0 && value[0] != '\0') {
+    return (float)atof(value);
+  }
+  return fallback;
+}
+
 static void obl_android_perf_override(void)
 {
   if (!obl_android_prop_int("debug.blender.perf_override", 1)) {
     __android_log_print(ANDROID_LOG_INFO, "OBL.PERF",
-                        "Override disabled, using saved userpref: aa=%d smooth_wire=%d",
+                        "Override disabled, using saved userpref: aa=%d smooth_wire=%d scale=%.3f",
                         (int)U.viewport_aa,
-                        (U.gpu_flag & USER_GPU_FLAG_OVERLAY_SMOOTH_WIRE) != 0);
+                        (U.gpu_flag & USER_GPU_FLAG_OVERLAY_SMOOTH_WIRE) != 0,
+                        U.android_render_scale);
     return;
   }
 
@@ -416,11 +429,22 @@ static void obl_android_perf_override(void)
     U.gpu_flag &= ~USER_GPU_FLAG_OVERLAY_SMOOTH_WIRE;
   }
 
+  /* Lower the native Android buffer by 1.25x per axis (~36% fewer pixels).
+   * This must be pushed to GHOST after WM_init(), otherwise a saved
+   * userpref.blend with 1.0 would win over the new default. */
+  float render_scale = obl_android_prop_float("debug.blender.render_scale", 1.25f);
+  if (!(render_scale >= 1.0f && render_scale <= 3.0f)) {
+    render_scale = 1.25f;
+  }
+  U.android_render_scale = render_scale;
+  WM_window_android_render_scale_check();
+
   __android_log_print(ANDROID_LOG_INFO, "OBL.PERF",
-                      "Applied Android perf override: aa=%d smooth_wire=%d gpu_flag=0x%x",
+                      "Applied Android perf override: aa=%d smooth_wire=%d gpu_flag=0x%x scale=%.3f",
                       (int)U.viewport_aa,
                       (U.gpu_flag & USER_GPU_FLAG_OVERLAY_SMOOTH_WIRE) != 0,
-                      (unsigned int)(unsigned char)U.gpu_flag);
+                      (unsigned int)(unsigned char)U.gpu_flag,
+                      U.android_render_scale);
 }
 #endif
 
