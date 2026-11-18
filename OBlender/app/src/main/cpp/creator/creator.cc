@@ -20,59 +20,6 @@ char strConfigPath[256]={0};
 static float g_dpi_scale = 1.0f;
 static bool g_dpi_initialized = false;
 
-#ifdef __ANDROID__
-/* Android perf defaults must be applied AFTER WM_init(), because the device
- * keeps a userpref.blend under /sdcard that can still carry viewport_aa=8 and
- * smooth-wire ON from an older build, silently cancelling the new defaults.
- *
- * A/B switches (read once at startup; restart the app after changing):
- *   setprop debug.blender.perf_override 0   -> leave saved userpref untouched
- *   setprop debug.blender.viewport_aa 8     -> force 8x Workbench TAA/SMAA
- *   setprop debug.blender.smooth_wire 1     -> force overlay smooth-wire ON
- */
-static int obl_android_prop_int(const char *name, int fallback)
-{
-  char value[PROP_VALUE_MAX] = {};
-  if (__system_property_get(name, value) > 0 && value[0] != '\0') {
-    return atoi(value);
-  }
-  return fallback;
-}
-
-static void obl_android_perf_override(void)
-{
-  if (!obl_android_prop_int("debug.blender.perf_override", 1)) {
-    __android_log_print(ANDROID_LOG_INFO, "OBL.PERF",
-                        "Override disabled, using saved userpref: aa=%d smooth_wire=%d",
-                        (int)U.viewport_aa,
-                        (U.gpu_flag & USER_GPU_FLAG_OVERLAY_SMOOTH_WIRE) != 0);
-    return;
-  }
-
-  int aa = obl_android_prop_int("debug.blender.viewport_aa", 0);
-  if (aa < 0) {
-    aa = 0;
-  }
-  else if (aa > 32) {
-    aa = 32;
-  }
-  U.viewport_aa = (char)aa;
-
-  if (obl_android_prop_int("debug.blender.smooth_wire", 0)) {
-    U.gpu_flag |= USER_GPU_FLAG_OVERLAY_SMOOTH_WIRE;
-  }
-  else {
-    U.gpu_flag &= ~USER_GPU_FLAG_OVERLAY_SMOOTH_WIRE;
-  }
-
-  __android_log_print(ANDROID_LOG_INFO, "OBL.PERF",
-                      "Applied Android perf override: aa=%d smooth_wire=%d gpu_flag=0x%x",
-                      (int)U.viewport_aa,
-                      (U.gpu_flag & USER_GPU_FLAG_OVERLAY_SMOOTH_WIRE) != 0,
-                      (unsigned int)(unsigned char)U.gpu_flag);
-}
-#endif
-
 #ifdef WIN32
 #  include "utfconv.h"
 #  include <windows.h>
@@ -422,6 +369,59 @@ void oblSetSculptToolRequest(const char *idname) {
     g_pending_tool_id = idname;
     g_pending_tool_set = true;
 }
+
+#ifdef __ANDROID__
+/* Android perf defaults must be applied AFTER WM_init(), because the device
+ * keeps a userpref.blend under /sdcard that can still carry viewport_aa=8 and
+ * smooth-wire ON from an older build, silently cancelling the new defaults.
+ *
+ * A/B switches (read once at startup; restart the app after changing):
+ *   setprop debug.blender.perf_override 0   -> leave saved userpref untouched
+ *   setprop debug.blender.viewport_aa 8     -> force 8x Workbench TAA/SMAA
+ *   setprop debug.blender.smooth_wire 1     -> force overlay smooth-wire ON
+ */
+static int obl_android_prop_int(const char *name, int fallback)
+{
+  char value[PROP_VALUE_MAX] = {};
+  if (__system_property_get(name, value) > 0 && value[0] != '\0') {
+    return atoi(value);
+  }
+  return fallback;
+}
+
+static void obl_android_perf_override(void)
+{
+  if (!obl_android_prop_int("debug.blender.perf_override", 1)) {
+    __android_log_print(ANDROID_LOG_INFO, "OBL.PERF",
+                        "Override disabled, using saved userpref: aa=%d smooth_wire=%d",
+                        (int)U.viewport_aa,
+                        (U.gpu_flag & USER_GPU_FLAG_OVERLAY_SMOOTH_WIRE) != 0);
+    return;
+  }
+
+  int aa = obl_android_prop_int("debug.blender.viewport_aa", 0);
+  if (aa < 0) {
+    aa = 0;
+  }
+  else if (aa > 32) {
+    aa = 32;
+  }
+  U.viewport_aa = (char)aa;
+
+  if (obl_android_prop_int("debug.blender.smooth_wire", 0)) {
+    U.gpu_flag |= USER_GPU_FLAG_OVERLAY_SMOOTH_WIRE;
+  }
+  else {
+    U.gpu_flag &= ~USER_GPU_FLAG_OVERLAY_SMOOTH_WIRE;
+  }
+
+  __android_log_print(ANDROID_LOG_INFO, "OBL.PERF",
+                      "Applied Android perf override: aa=%d smooth_wire=%d gpu_flag=0x%x",
+                      (int)U.viewport_aa,
+                      (U.gpu_flag & USER_GPU_FLAG_OVERLAY_SMOOTH_WIRE) != 0,
+                      (unsigned int)(unsigned char)U.gpu_flag);
+}
+#endif
 
 void* mainBlenderInitial(int argc,
 #ifdef USE_WIN32_UNICODE_ARGS
