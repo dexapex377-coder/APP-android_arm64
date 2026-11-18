@@ -1131,8 +1131,12 @@ int mainBlenderLoop(void*pContext) {
         if (screen == NULL) {
           continue;
         }
-        screen->do_draw = true;
+        /* Solo la VIEW_3D: forzar todas las regiones satura la UI y enmascara
+         * el coste por píxel que queremos medir. */
         LISTBASE_FOREACH (ScrArea *, area, &screen->areabase) {
+          if (area->spacetype != SPACE_VIEW3D) {
+            continue;
+          }
           LISTBASE_FOREACH (ARegion *, region, &area->regionbase) {
             region->do_draw = true;
           }
