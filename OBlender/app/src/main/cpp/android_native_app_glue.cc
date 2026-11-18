@@ -455,7 +455,17 @@ static void onStop(ANativeActivity *activity) {
 
 static void onConfigurationChanged(ANativeActivity *activity) {
     LOGI("OBL ConfigurationChanged: %p", activity);
-    android_app_write_cmd(ToApp(activity), APP_CMD_CONFIG_CHANGED);
+    /* Refresh the app's copy of the configuration BEFORE posting the command.
+     * GHOST reads AConfiguration_getOrientation() to detect rotation: without
+     * this, app->config keeps the startup orientation and the UI never reflows
+     * (the viewport stretches instead). */
+    struct android_app *app = ToApp(activity);
+    if (app && app->config) {
+        AConfiguration_fromAssetManager(app->config, activity->assetManager);
+        LOGI("OBL ConfigurationChanged: orientation=%d",
+             AConfiguration_getOrientation(app->config));
+    }
+    android_app_write_cmd(app, APP_CMD_CONFIG_CHANGED);
 }
 
 static void onContentRectChanged(ANativeActivity *activity, const ARect *r) {
