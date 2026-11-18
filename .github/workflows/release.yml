@@ -61,7 +61,7 @@ jobs:
       - name: Get Blender CI run ID
         id: get-run
         run: |
-            LATEST_BLENDER_RUN="44348209374"
+            LATEST_BLENDER_RUN="44383142625"
             if [ -n "${{ inputs.blender_run_id }}" ]; then
             echo "run_id=${{ inputs.blender_run_id }}" >> $GITHUB_OUTPUT
             echo "Using specified run: ${{ inputs.blender_run_id }}"
