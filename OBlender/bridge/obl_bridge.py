@@ -1,65 +1,164 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """obl_bridge - generic Kotlin/Compose <-> Blender command bridge.
 
-This file is the executable spec for the UI. The native side only forwards a
-single string; ALL behaviour lives here so it can be edited on the device at:
+The native side only forwards one string. ALL behaviour lives here so the UI
+can be edited on the device without rebuilding the APK:
 
     /sdcard/Android/data/com.epai.oblender/files/obl/obl_bridge.py
 
-No APK rebuild is needed to change a button: edit the file, then send the
-command again. Use the command ``bridge.reload`` to pick up edits immediately.
+Protocol v2 adds context-aware operators, RNA get/set, state snapshots, an
+action catalogue and an event bus back to Kotlin.
 """
 
 import bpy
+import json
+import os
+from contextlib import nullcontext
 
 _LOG_PREFIX = "[OBL.BRIDGE]"
+
+_AREAS = {
+    "VIEW_3D",
+    "OUTLINER",
+    "PROPERTIES",
+    "NODE_EDITOR",
+    "SEQUENCE_EDITOR",
+    "IMAGE_EDITOR",
+    "TEXT_EDITOR",
+    "DOPESHEET_EDITOR",
+    "GRAPH_EDITOR",
+    "TIMELINE",
+    "CLIP_EDITOR",
+    "FILE_BROWSER",
+    "PREFERENCES",
+    "TOPBAR",
+    "STATUSBAR",
+}
+
+_event_path_cache = None
+
+
+def _event_path():
+    global _event_path_cache
+    if _event_path_cache is None:
+        try:
+            _event_path_cache = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)), "events.jsonl"
+            )
+        except Exception:
+            _event_path_cache = os.path.join(bpy.app.tempdir, "obl_bridge_events.jsonl")
+    return _event_path_cache
+
+
+def emit(event_type, **data):
+    """Append a JSON event to the bus. Kotlin polls this file."""
+    record = {"type": event_type}
+    record.update(data)
+    try:
+        line = json.dumps(record, separators=(",", ":")) + "\n"
+        with open(_event_path(), "a", encoding="utf-8") as stream:
+            stream.write(line)
+    except Exception as exc:
+        print("%s emit failed: %s" % (_LOG_PREFIX, exc))
+    print("%s event: %s" % (_LOG_PREFIX, event_type))
 
 
 def _log(message):
     print("%s %s" % (_LOG_PREFIX, message))
+    emit("log", message=str(message))
 
 
 def _state():
-    """State survives ``bridge.reload`` because it lives in bpy's namespace."""
+    """State survives bridge.reload because it lives in bpy's namespace."""
     ns = bpy.app.driver_namespace
     state = ns.get("obl_bridge_state")
     if state is None:
-        state = {"hidden": False, "draws": {}, "regions": [], "statusbars": []}
+        state = {
+            "hidden": False,
+            "draws": {},
+            "regions": [],
+            "statusbars": [],
+            "last_sig": None,
+        }
         ns["obl_bridge_state"] = state
     return state
 
 
-def _view3d_context():
-    """Return a VIEW_3D area override, or the current context if there is none."""
+def _parse(command, prefix):
+    """Parse '<payload>[|<json>][@AREA]' after a known prefix."""
+    if not command.startswith(prefix):
+        return None
+    rest = command[len(prefix) :]
+    area = None
+    if "@" in rest:
+        head, suffix = rest.rsplit("@", 1)
+        if suffix in _AREAS:
+            rest, area = head, suffix
+    payload = None
+    if "|" in rest:
+        target, raw = rest.split("|", 1)
+        try:
+            payload = json.loads(raw)
+        except Exception:
+            payload = raw
+    else:
+        target = rest
+    return target, payload, area
+
+
+def _override(area_type):
+    """Return a temp_override for the requested editor, or a null context."""
+    if not area_type:
+        return nullcontext()
     window = getattr(bpy.context, "window", None)
-    if window and window.screen:
-        for area in window.screen.areas:
-            if area.type == "VIEW_3D":
-                return bpy.context.temp_override(area=area)
-    return None
-
-
-def _run_tool_set(idname):
-    override = _view3d_context()
-    if override is not None:
-        with override:
-            return bpy.ops.wm.tool_set_by_id(name=idname)
-    return bpy.ops.wm.tool_set_by_id(name=idname)
+    if window is None or window.screen is None:
+        return nullcontext()
+    area = next((a for a in window.screen.areas if a.type == area_type), None)
+    if area is None:
+        return nullcontext()
+    region = next((r for r in area.regions if r.type == "WINDOW"), None)
+    if region is not None:
+        return bpy.context.temp_override(window=window, area=area, region=region)
+    return bpy.context.temp_override(window=window, area=area)
 
 
 def _empty_draw(self, context):
     pass
 
 
-def ui_hide():
-    """Hide Blender's own UI, leaving the 3D canvas for the Compose overlay.
+def _active_tool_id():
+    try:
+        tool = bpy.context.workspace.tools.from_space_view3d_mode(
+            bpy.context.mode, create=False
+        )
+        return tool.idname if tool else ""
+    except Exception:
+        return ""
 
-    Regions are only hidden; no operator, addon or keymap is unregistered.
-    """
+
+def _snapshot():
+    window = getattr(bpy.context, "window", None)
+    view_layer = getattr(bpy.context, "view_layer", None)
+    active = getattr(view_layer, "objects", None)
+    active = getattr(active, "active", None) if active is not None else None
+    area = getattr(bpy.context, "area", None)
+    return {
+        "workspace": getattr(getattr(window, "workspace", None), "name", ""),
+        "screen": getattr(getattr(window, "screen", None), "name", ""),
+        "area": getattr(area, "type", ""),
+        "mode": getattr(bpy.context, "mode", ""),
+        "tool": _active_tool_id(),
+        "active_object": getattr(active, "name", ""),
+        "selected": [obj.name for obj in getattr(bpy.context, "selected_objects", [])],
+        "scene": getattr(getattr(bpy.context, "scene", None), "name", ""),
+    }
+
+
+def ui_hide():
+    """Hide Blender's own UI, leaving the 3D canvas for the Compose overlay."""
     state = _state()
     if not state["hidden"]:
-        classes = ("TOPBAR_HT_upper_bar", "TOPBAR_HT_lower_bar", "STATUSBAR_HT_header")
-        for name in classes:
+        for name in ("TOPBAR_HT_upper_bar", "TOPBAR_HT_lower_bar", "STATUSBAR_HT_header"):
             cls = getattr(bpy.types, name, None)
             if cls is not None and hasattr(cls, "draw"):
                 state["draws"][name] = cls.draw
@@ -110,6 +209,70 @@ def ui_restore():
     _log("Blender UI restored")
 
 
+def _depsgraph_handler(scene, depsgraph=None):
+    snapshot = _snapshot()
+    signature = (
+        snapshot["active_object"],
+        tuple(snapshot["selected"]),
+        snapshot["mode"],
+        snapshot["workspace"],
+        snapshot["tool"],
+    )
+    state = _state()
+    if state.get("last_sig") != signature:
+        state["last_sig"] = signature
+        emit("state", **snapshot)
+
+
+def subscribe():
+    """Emit a state event whenever the active object/mode/workspace/tool changes."""
+    state = _state()
+    old = state.get("depsgraph_handler")
+    if old is not None:
+        try:
+            bpy.app.handlers.depsgraph_update_post.remove(old)
+        except Exception:
+            pass
+    bpy.app.handlers.depsgraph_update_post.append(_depsgraph_handler)
+    state["depsgraph_handler"] = _depsgraph_handler
+    _log("subscribed to state changes")
+
+
+def action_catalog():
+    actions = [
+        {"id": "file.new", "label": "File / New", "command": "file.new"},
+        {"id": "ui.hide", "label": "Hide Blender UI", "command": "ui.hide"},
+        {"id": "ui.restore", "label": "Restore Blender UI", "command": "ui.restore"},
+        {
+            "id": "outliner.select",
+            "label": "Outliner / Activate",
+            "command": "op:bpy.ops.outliner.item_activate|{\"extend\":false}@OUTLINER",
+        },
+        {
+            "id": "props.material",
+            "label": "Properties / Material",
+            "command": "op:bpy.ops.wm.context_set_enum|{\"data_path\":\"space_data.context\",\"value\":\"MATERIAL\"}@PROPERTIES",
+        },
+    ]
+    for workspace in bpy.data.workspaces:
+        actions.append(
+            {
+                "id": "ws." + workspace.name,
+                "label": workspace.name,
+                "command": "workspace.set:" + workspace.name,
+            }
+        )
+    for tool_id in ("builtin_brush.Draw", "builtin_brush.Clay", "builtin_brush.Creativity"):
+        actions.append(
+            {
+                "id": "tool." + tool_id,
+                "label": tool_id.split(".")[-1],
+                "command": "tool.set:" + tool_id,
+            }
+        )
+    return actions
+
+
 def handle(command):
     """Execute one command string received from Kotlin/Compose."""
     if not command:
@@ -126,7 +289,7 @@ def handle(command):
         return
 
     if command == "ping":
-        _log("pong")
+        emit("pong")
         return
 
     if command == "ui.hide":
@@ -134,6 +297,28 @@ def handle(command):
         return
     if command == "ui.restore":
         ui_restore()
+        return
+    if command == "subscribe":
+        subscribe()
+        return
+    if command == "state":
+        emit("state", **_snapshot())
+        return
+    if command == "actions":
+        emit("actions", actions=action_catalog())
+        return
+
+    if command.startswith("event:"):
+        rest = command[len("event:") :]
+        if ":" in rest:
+            name, raw = rest.split(":", 1)
+            try:
+                data = json.loads(raw)
+            except Exception:
+                data = {"value": raw}
+            emit(name, **(data if isinstance(data, dict) else {"value": data}))
+        else:
+            emit(rest)
         return
 
     if command == "file.new":
@@ -161,14 +346,43 @@ def handle(command):
 
     if command.startswith("tool.set:"):
         idname = command.split(":", 1)[1]
-        _run_tool_set(idname)
+        with _override("VIEW_3D"):
+            bpy.ops.wm.tool_set_by_id(name=idname)
         _log("tool -> %s" % idname)
         return
 
-    if command.startswith("op:") or command.startswith("python:"):
-        code = command.split(":", 1)[1]
+    if command.startswith("op:"):
+        parsed = _parse(command, "op:")
+        target, kwargs, area = parsed
+        operator = bpy
+        for part in target.split("."):
+            operator = getattr(operator, part)
+        arguments = kwargs if isinstance(kwargs, dict) else {}
+        with _override(area):
+            result = operator(**arguments)
+        emit("op_result", id=target, result=sorted(str(v) for v in (result or ())), area=area or "")
+        return
+
+    if command.startswith("set:"):
+        parsed = _parse(command, "set:")
+        target, value, area = parsed
+        safe_globals = {"bpy": bpy, "__builtins__": {}}
+        with _override(area):
+            exec(target + " = _obl_value", safe_globals, {"_obl_value": value})
+        emit("set_result", path=target, value=value)
+        return
+
+    if command.startswith("get:"):
+        target = command[len("get:") :]
+        safe_globals = {"bpy": bpy, "__builtins__": {}}
+        value = eval(target, safe_globals, {})
+        emit("get_result", path=target, value=value)
+        return
+
+    if command.startswith("python:"):
+        code = command[len("python:") :]
         exec(code, {"bpy": bpy})
-        _log("exec ok")
+        _log("python exec ok")
         return
 
     _log("unknown command: %s" % command)

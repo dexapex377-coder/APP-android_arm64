@@ -1,65 +1,70 @@
-# Puente UI (3.6.22)
+# Puente UI v2 (3.6.22)
 
-Un solo punto de entrada JNI para toda la UI Compose:
+Un solo JNI (`oblDispatch`) para toda la UI Compose. El hilo de la UI solo
+encola la cadena; `creator.cc` la drena en el hilo de Blender con `bContext`
+válido y llama a `obl_bridge.handle(cmd)`.
 
-```kotlin
-OBLNativeActivity.oblDispatchStatic("workspace.set:Sculpting")
-```
-
-El hilo de la UI **solo encola** la cadena. El `drain` vive en
-`app/src/main/cpp/creator/creator.cc`, dentro del loop de Blender, con un
-`bContext` válido, y ejecuta `obl_bridge.handle(cmd)`.
-
-## Archivo editable en el dispositivo
+## Archivo editable
 
 ```
 /sdcard/Android/data/com.epai.oblender/files/obl/obl_bridge.py
+/sdcard/Android/data/com.epai.oblender/files/obl/events.jsonl
 ```
 
-Se puede editar con `adb push`; no hace falta volver a compilar la APK. Después de
-editar, enviar `bridge.reload` (o reiniciar la app).
+Cambiar el `.py` no requiere rebuild. Enviar `bridge.reload` para recargarlo.
 
-## Protocolo
+## Comandos (Kotlin -> Blender)
 
 | Comando | Acción |
 |---|---|
-| `ping` | comprueba que el puente responde |
-| `bridge.reload` | recarga el módulo Python desde `/sdcard` |
-| `file.new` | `bpy.ops.wm.read_homefile(app_template="")` |
-| `file.open:<path>` | abre un `.blend` |
-| `workspace.set:<name>` | cambia `window.workspace` |
-| `tool.set:<idname>` | `bpy.ops.wm.tool_set_by_id` con override de `VIEW_3D` |
-| `ui.hide` | oculta topbar, statusbar, headers, toolbar y sidebar |
-| `ui.restore` | restaura lo oculto por `ui.hide` |
-| `op:<python>` | ejecuta Python arbitrario (canal de desarrollo) |
+| `ping` | emite `pong` |
+| `bridge.reload` | recarga el módulo |
+| `state` | emite snapshot: workspace, area, mode, tool, objeto activo, selección |
+| `actions` | emite catálogo para construir menús en Compose |
+| `subscribe` | emite `state` cuando cambia selección/modo/workspace/tool |
+| `event:<nombre>:<json>` | emite un evento arbitrario |
+| `file.new` / `file.open:<path>` | archivo |
+| `workspace.set:<name>` | cambia workspace |
+| `tool.set:<idname>` | tool con override de `VIEW_3D` |
+| `op:<idname>[\|json]@AREA` | operador con kwargs y contexto de editor |
+| `set:<path>\|<json>[@AREA]` | escribe una propiedad RNA |
+| `get:<path>` | lee una propiedad RNA y emite `get_result` |
+| `ui.hide` / `ui.restore` | oculta/restaura la UI nativa |
+| `python:<code>` | canal de desarrollo, Python arbitrario |
+
+`AREA` puede ser `VIEW_3D`, `OUTLINER`, `PROPERTIES`, `NODE_EDITOR`,
+`SEQUENCE_EDITOR`, `IMAGE_EDITOR`, `TEXT_EDITOR`, etc. El puente busca esa
+editor en la screen activa y aplica `temp_override(window, area, region)`.
+Así `bpy.ops.outliner.*`, `bpy.ops.node.*` o los settings de Tool funcionan
+igual que si el usuario tocara esa región.
 
 Ejemplos:
 
 ```kotlin
-OBLNativeActivity.oblDispatchStatic("file.new")
-OBLNativeActivity.oblDispatchStatic("workspace.set:Shading")
-OBLNativeActivity.oblDispatchStatic("tool.set:builtin_brush.Clay")
-OBLNativeActivity.oblDispatchStatic("ui.hide")
+val b = OBLNativeActivity::oblDispatchStatic
+
+b("workspace.set:Shading")
+b("op:bpy.ops.outliner.item_activate|{\"extend\":false}@OUTLINER")
+b("set:bpy.context.scene.render.resolution_x|1920")
+b("get:bpy.context.object.name")
+b("subscribe")
+b("ui.hide")
 ```
 
-## Instalación del módulo
+## Eventos (Blender -> Kotlin)
 
-```bash
-adb push obl_bridge.py /sdcard/Android/data/com.epai.oblender/files/obl/obl_bridge.py
+`emit()` escribe una línea JSON por evento en `events.jsonl`. Kotlin puede
+pollear el archivo (o usar `FileObserver`) y quedarse syncronizado con Blender:
+
+```kotlin
+data class BridgeEvent(val type: String, val data: Map<String, Any?>)
 ```
 
-Verificar en logcat:
+Eventos emitidos: `pong`, `log`, `state`, `actions`, `op_result`, `set_result`,
+`get_result` y cualquier `event:<nombre>` propio.
 
-```
-OBL.BRIDGE JNI queued: ...
-OBL.BRIDGE dispatch: ...
-[OBL.BRIDGE] ...
-```
+## Cobertura
 
-## Flujo recomendado
-
-1. Probar la acción desde el addon/Python y dejarla como comando en `obl_bridge.py`.
-2. El botón Compose solo envía esa cadena.
-3. Cuando la UI de Blender se oculta con `ui.hide`, los addons siguen vivos:
-   solo se ocultan regiones y se sustituye el `draw` de la topbar; no se
-   desregistran operadores ni keymaps.
+Cualquier botón de File/Edit/Render/Window/Help se reduce a una de estas
+cuatro cosas: operador con contexto, propiedad RNA, cambio de workspace/tool
+o una acción Python propia. No hace falta una JNI por botón.
