@@ -1120,6 +1120,24 @@ int mainBlenderLoop(void*pContext) {
       }
     }
   }
+  /* Deterministic FPS measurement: force a full redraw every loop iteration
+   * when `debug.blender.force_redraw 1` is set. Without this, Blender only
+   * swaps when a touch event dirties a region, so idle OBL.SWAP is ~0 fps. */
+  if (obl_android_prop_int("debug.blender.force_redraw", 0)) {
+    wmWindow *win = CTX_wm_window(C);
+    if (win != NULL) {
+      bScreen *screen = WM_window_get_active_screen(win);
+      if (screen != NULL) {
+        screen->do_draw = true;
+        LISTBASE_FOREACH (ScrArea *, area, &screen->areabase) {
+          LISTBASE_FOREACH (ARegion *, region, &area->regionbase) {
+            region->do_draw = true;
+          }
+        }
+      }
+    }
+  }
+
   Wm_loop(C);
     return 0;
 }
