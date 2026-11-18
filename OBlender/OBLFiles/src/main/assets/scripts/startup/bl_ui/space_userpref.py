@@ -628,6 +628,24 @@ class USERPREF_PT_system_gpu_backend(SystemPanel, CenterAlignMixIn, Panel):
             layout.label(text="Requires a restart of Blender to take effect", icon='INFO')
 
 
+class USERPREF_PT_system_android_render(SystemPanel, CenterAlignMixIn, Panel):
+    bl_label = "Android Render Scale"
+
+    @classmethod
+    def poll(cls, _context):
+        # CPython on Android often reports "linux", so check the filesystem.
+        import os
+        return os.path.isfile("/system/build.prop")
+
+    def draw_centered(self, context, layout):
+        system = context.preferences.system
+
+        col = layout.column()
+        col.prop(system, "android_render_scale", text="Render Scale")
+        col.label(text="1.0 = native. Higher values render fewer pixels and raise FPS.")
+        col.label(text="Applied immediately; the UI is upscaled by Android.", icon='INFO')
+
+
 class USERPREF_PT_system_os_settings(SystemPanel, CenterAlignMixIn, Panel):
     bl_label = "Operating System Settings"
 
@@ -2482,6 +2500,7 @@ classes = (
 
     USERPREF_PT_system_cycles_devices,
     USERPREF_PT_system_gpu_backend,
+    USERPREF_PT_system_android_render,
     USERPREF_PT_system_os_settings,
     USERPREF_PT_system_memory,
     USERPREF_PT_system_video_sequencer,
