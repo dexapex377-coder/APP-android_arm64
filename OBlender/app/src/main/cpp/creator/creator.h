@@ -25,6 +25,7 @@ extern void oblSetActiveBrushColor(float r, float g, float b);
 extern void oblSetActiveBrushExtra(int field, float v);
 extern void oblSetActiveBrushColor(float r, float g, float b);
 extern void oblSetSculptToolRequest(const char *idname);
+extern void oblQueueDispatch(const char *command);
 extern void inputKey(int p_physical_keycode,
                      int p_unicode, int p_key_label, int p_pressed,
                      int p_echo);

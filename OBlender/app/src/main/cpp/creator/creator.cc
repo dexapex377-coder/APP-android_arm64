@@ -9,8 +9,10 @@
 #include <string.h>
 #include <android/log.h>
 #include <chrono>
+#include <deque>
 #include <mutex>
 #include <string>
+#include <vector>
 #ifdef __ANDROID__
 #  include <sys/system_properties.h>
 #endif
@@ -312,6 +314,13 @@ static std::mutex g_tool_mutex;
 static std::string g_pending_tool_id;
 static bool g_pending_tool_set = false;
 
+/* Generic command bridge: Kotlin/Compose -> Blender.
+ * The JNI thread only queues the string; the actual bpy call is drained on the
+ * render thread together with the sculpt-tool requests, where bContext is
+ * valid. Same pattern, so it does not depend on key-event dispatch. */
+static std::mutex g_dispatch_mutex;
+static std::deque<std::string> g_pending_dispatch;
+
 /* Pending brush size/strength requests from the wheel's mini menu (UI thread).
  * Mirrors the tool-set drain: stash under mutex, apply on the render thread
  * where bContext (C) and the active sculpt Brush are valid. The statics
@@ -370,6 +379,25 @@ void oblSetSculptToolRequest(const char *idname) {
     std::lock_guard<std::mutex> lock(g_tool_mutex);
     g_pending_tool_id = idname;
     g_pending_tool_set = true;
+}
+
+void oblQueueDispatch(const char *command) {
+    if (!command || !command[0]) return;
+    std::lock_guard<std::mutex> lock(g_dispatch_mutex);
+    g_pending_dispatch.push_back(std::string(command));
+}
+
+/* Escape a command so it can be embedded in a Python single-quoted literal. */
+static std::string obl_py_quote(const std::string &value) {
+    std::string out = "'";
+    for (char c : value) {
+        if (c == '\\' || c == '\'') {
+            out += '\\';
+        }
+        out += c;
+    }
+    out += "'";
+    return out;
 }
 
 #ifdef __ANDROID__
@@ -986,6 +1014,29 @@ int mainBlenderLoop(void*pContext) {
       }
       __android_log_print(ANDROID_LOG_INFO, "OBL.WHEEL",
           "static updated -> %s | ctx_ok=%d", pending.c_str(), ctx_ok);
+    }
+  }
+  /* Drain commands from the Kotlin/Compose bridge. Executed here, on the render
+   * thread, so bpy.ops sees the real window/screen/area from bContext. The
+   * Python module lives under strHomePath (external /files/obl), so it can be
+   * edited on the device without rebuilding the APK. */
+  {
+    std::deque<std::string> batch;
+    {
+      std::lock_guard<std::mutex> lock(g_dispatch_mutex);
+      batch.swap(g_pending_dispatch);
+    }
+    const char *imports[] = {"bpy", NULL};
+    while (!batch.empty()) {
+      const std::string cmd = batch.front();
+      batch.pop_front();
+      const std::string path = obl_py_quote(std::string(strHomePath));
+      std::string py = "import sys\n";
+      py += "if " + path + " not in sys.path: sys.path.insert(0, " + path + ")\n";
+      py += "import obl_bridge\n";
+      py += "obl_bridge.handle(" + obl_py_quote(cmd) + ")\n";
+      __android_log_print(ANDROID_LOG_INFO, "OBL.BRIDGE", "dispatch: %s", cmd.c_str());
+      BPY_run_string_exec(C, imports, py.c_str());
     }
   }
   /* Drain brush size/strength requests del mini menu del wheel + refrescar los

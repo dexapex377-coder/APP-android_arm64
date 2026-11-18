@@ -736,6 +736,20 @@ extern "C" JNIEXPORT jstring JNICALL Java_com_epai_oblender_OBLNativeActivity_st
     return env->NewStringUTF(hello.c_str());
 }
 
+/** Generic Kotlin/Compose -> Blender bridge.
+ * This runs on the Android UI thread: it ONLY queues the string. The actual
+ * bpy call is drained on the render thread in creator.cc, where bContext is
+ * valid. Keeping it to one JNI method avoids one native export per button. */
+extern "C" JNIEXPORT void JNICALL Java_com_epai_oblender_OBLNativeActivity_oblDispatch(
+        JNIEnv *env,
+        jobject /* this */,
+        jstring jcommand) {
+    if (jcommand == nullptr) return;
+    std::string cmd = jstring2string(env, jcommand);
+    __android_log_print(ANDROID_LOG_INFO, "OBL.BRIDGE", "JNI queued: %s", cmd.c_str());
+    oblQueueDispatch(cmd.c_str());
+}
+
 extern "C" JNIEXPORT void JNICALL Java_com_epai_oblender_OBLNativeActivity_oblSetToolById(
         JNIEnv *env,
         jobject /* this */,

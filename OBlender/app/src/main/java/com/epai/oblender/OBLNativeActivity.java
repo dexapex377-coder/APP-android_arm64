@@ -389,6 +389,14 @@ public class OBLNativeActivity extends NativeActivity
     /** Sculpt wheel overlay: set the active sculpt tool directly (bypasses key dispatch). */
     public native void oblSetToolById(String idname);
 
+    /** Generic UI bridge: one entry point for every Compose/UI action. */
+    public native void oblDispatch(String command);
+
+    /** Static accessor so Compose can send a command without holding the Activity. */
+    public static void oblDispatchStatic(String command) {
+        if (sActivity != null && command != null) sActivity.oblDispatch(command);
+    }
+
     /** Static accessor for the overlay (Kotlin) to query the real GHOST cursor position. */
     public static int[] getCursorPositionStatic() {
         if (sActivity == null) return new int[] { -1, -1 };
