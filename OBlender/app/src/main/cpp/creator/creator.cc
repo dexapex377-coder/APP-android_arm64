@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <android/log.h>
+#include <chrono>
 #include <mutex>
 #include <string>
 #ifdef __ANDROID__
@@ -861,6 +862,24 @@ static bToolRef *obl_activate_tool_by_id(bContext *C, const char *name)
 
 int mainBlenderLoop(void*pContext) {
   bContext *C = (bContext *)pContext;
+
+  /* FPS telemetry: measure A/B perf changes from adb logcat without having to
+   * read the on-screen counter. One line every 2 seconds. */
+  {
+    static auto s_last = std::chrono::steady_clock::now();
+    static int s_frames = 0;
+    s_frames++;
+    const auto now = std::chrono::steady_clock::now();
+    const double elapsed = std::chrono::duration<double>(now - s_last).count();
+    if (elapsed >= 2.0) {
+      __android_log_print(ANDROID_LOG_INFO, "OBL.FPS",
+                          "%.1f fps (%d frames in %.2fs)",
+                          (double)s_frames / elapsed, s_frames, elapsed);
+      s_last = now;
+      s_frames = 0;
+    }
+  }
+
   if (!g_dpi_initialized && g_dpi_scale > 1.01f) {
     g_dpi_initialized = true;
     /* Don't override if user has a custom ui_scale saved in preferences */
