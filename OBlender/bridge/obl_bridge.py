@@ -154,6 +154,34 @@ def _snapshot():
     }
 
 
+def _workspace_tool():
+    try:
+        return bpy.context.workspace.tools.from_space_view3d_mode(
+            bpy.context.mode, create=False
+        )
+    except Exception:
+        return None
+
+
+def _gizmo_props(idname):
+    tool = _workspace_tool()
+    return tool.gizmo_group_properties(idname) if tool is not None else None
+
+
+def _operator_props(idname):
+    tool = _workspace_tool()
+    return tool.operator_properties(idname) if tool is not None else None
+
+
+def _tool_settings(tool_id):
+    info = {"tool": tool_id}
+    if tool_id == "builtin.extrude_region":
+        info["operator"] = "view3d.edit_mesh_extrude_move_normal"
+        props = _gizmo_props("VIEW3D_GGT_xform_extrude")
+        info["axis_type"] = getattr(props, "axis_type", "NORMAL")
+    return info
+
+
 def ui_hide():
     """Hide Blender's own UI, leaving the 3D canvas for the Compose overlay."""
     state = _state()
@@ -344,11 +372,63 @@ def handle(command):
         _log("workspace -> %s" % workspace.name)
         return
 
+    if command.startswith("mode.set:"):
+        mode = command.split(":", 1)[1]
+        with _override("VIEW_3D"):
+            bpy.ops.object.mode_set(mode=mode)
+        emit("mode", mode=mode)
+        return
+
     if command.startswith("tool.set:"):
         idname = command.split(":", 1)[1]
         with _override("VIEW_3D"):
             bpy.ops.wm.tool_set_by_id(name=idname)
-        _log("tool -> %s" % idname)
+        emit("tool", **_tool_settings(idname))
+        return
+
+    if command.startswith("tool.activate:"):
+        idname = command.split(":", 1)[1]
+        with _override("VIEW_3D"):
+            bpy.ops.wm.tool_set_by_id(name=idname)
+        emit("tool_settings", **_tool_settings(idname))
+        return
+
+    if command.startswith("tool.gizmo:"):
+        parsed = _parse(command, "tool.gizmo:")
+        rest, value, _area = parsed
+        gizmo_id, prop = rest.split(":", 1)
+        props = _gizmo_props(gizmo_id)
+        if props is None:
+            _log("gizmo props unavailable: %s" % gizmo_id)
+            return
+        if value is not None:
+            setattr(props, prop, value)
+        emit("tool_setting", group="gizmo", id=gizmo_id, prop=prop, value=getattr(props, prop))
+        return
+
+    if command.startswith("tool.opprop:"):
+        parsed = _parse(command, "tool.opprop:")
+        rest, value, _area = parsed
+        op_id, prop = rest.split(":", 1)
+        props = _operator_props(op_id)
+        if props is None:
+            _log("operator props unavailable: %s" % op_id)
+            return
+        if value is not None:
+            setattr(props, prop, value)
+        emit("tool_setting", group="operator", id=op_id, prop=prop, value=getattr(props, prop))
+        return
+
+    if command.startswith("tool.exec:"):
+        parsed = _parse(command, "tool.exec:")
+        target, kwargs, area = parsed
+        operator = bpy
+        for part in target.split("."):
+            operator = getattr(operator, part)
+        arguments = kwargs if isinstance(kwargs, dict) else {}
+        with _override(area or "VIEW_3D"):
+            result = operator(**arguments)
+        emit("op_result", id=target, result=sorted(str(v) for v in (result or ())))
         return
 
     if command.startswith("op:"):
