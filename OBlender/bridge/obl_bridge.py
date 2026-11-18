@@ -10,6 +10,7 @@ Protocol v2 adds context-aware operators, RNA get/set, state snapshots, an
 action catalogue and an event bus back to Kotlin.
 """
 
+import ast
 import bpy
 import json
 import os
@@ -266,11 +267,108 @@ def subscribe():
     _log("subscribed to state changes")
 
 
+def _menu_area(menu_id):
+    name = menu_id.upper()
+    if name.startswith("VIEW3D"):
+        return "VIEW_3D"
+    if name.startswith("NODE"):
+        return "NODE_EDITOR"
+    if name.startswith("OUTLINER"):
+        return "OUTLINER"
+    if name.startswith("SEQUENCE"):
+        return "SEQUENCE_EDITOR"
+    if name.startswith("IMAGE"):
+        return "IMAGE_EDITOR"
+    if name.startswith("TEXT"):
+        return "TEXT_EDITOR"
+    if name.startswith("TOPBAR"):
+        return "TOPBAR"
+    if name.startswith("STATUSBAR"):
+        return "STATUSBAR"
+    return ""
+
+
+def _build_menu_tree():
+    """Parse Blender's own Python UI files into a menu -> items catalogue.
+
+    Menus are Python classes whose draw() calls layout.operator()/menu().
+    Reading those calls statically gives Compose the real menu/submenu tree
+    without having to draw Blender's native UI.
+    """
+    state = _state()
+    cached = state.get("menu_tree")
+    if cached is not None:
+        return cached
+
+    tree = {}
+    for base in bpy.utils.script_paths():
+        ui_dir = os.path.join(base, "startup", "bl_ui")
+        if not os.path.isdir(ui_dir):
+            continue
+        for filename in sorted(os.listdir(ui_dir)):
+            if not filename.endswith(".py"):
+                continue
+            try:
+                with open(os.path.join(ui_dir, filename), encoding="utf-8") as stream:
+                    module = ast.parse(stream.read())
+            except Exception as exc:
+                print("%s parse failed %s: %s" % (_LOG_PREFIX, filename, exc))
+                continue
+
+            for node in ast.walk(module):
+                if not isinstance(node, ast.ClassDef) or "_MT_" not in node.name:
+                    continue
+                items = tree.setdefault(node.name, [])
+                seen = set()
+                for call in ast.walk(node):
+                    if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Attribute):
+                        continue
+                    kind = call.func.attr
+                    if kind not in ("operator", "menu") or not call.args:
+                        continue
+                    first = call.args[0]
+                    if not isinstance(first, ast.Constant) or not isinstance(first.value, str):
+                        continue
+                    ident = first.value
+                    label = ""
+                    for keyword in call.keywords:
+                        if keyword.arg == "text" and isinstance(keyword.value, ast.Constant):
+                            label = keyword.value.value
+                    key = (kind, ident, label)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    if kind == "operator":
+                        op_id = ident if ident.startswith("bpy.ops.") else "bpy.ops." + ident
+                        items.append(
+                            {
+                                "type": "operator",
+                                "id": ident,
+                                "label": label or ident,
+                                "command": "op:" + op_id + "@" + _menu_area(node.name),
+                            }
+                        )
+                    else:
+                        items.append(
+                            {
+                                "type": "menu",
+                                "id": ident,
+                                "label": label or ident,
+                                "command": "menu:" + ident,
+                            }
+                        )
+
+    state["menu_tree"] = tree
+    return tree
+
+
 def action_catalog():
     actions = [
         {"id": "file.new", "label": "File / New", "command": "file.new"},
         {"id": "ui.hide", "label": "Hide Blender UI", "command": "ui.hide"},
         {"id": "ui.restore", "label": "Restore Blender UI", "command": "ui.restore"},
+        {"id": "menu.tree", "label": "All menus", "command": "menu.tree"},
+        {"id": "mesh.subdivide", "label": "Subdivide", "command": "mesh.subdivide:1"},
         {
             "id": "outliner.select",
             "label": "Outliner / Activate",
@@ -370,6 +468,35 @@ def handle(command):
             return
         bpy.context.window.workspace = workspace
         _log("workspace -> %s" % workspace.name)
+        return
+
+    if command == "menu.tree":
+        tree = _build_menu_tree()
+        emit("menu_tree", menus=sorted(tree.keys()))
+        return
+
+    if command.startswith("menu.open:"):
+        menu_id = command.split(":", 1)[1]
+        with _override(_menu_area(menu_id)):
+            bpy.ops.wm.call_menu(name=menu_id)
+        emit("menu_opened", id=menu_id)
+        return
+
+    if command.startswith("menu:"):
+        menu_id = command.split(":", 1)[1]
+        tree = _build_menu_tree()
+        emit("menu_items", id=menu_id, items=tree.get(menu_id, []))
+        return
+
+    if command.startswith("mesh.subdivide"):
+        parts = command.split(":")
+        try:
+            cuts = int(parts[1]) if len(parts) > 1 else 1
+        except ValueError:
+            cuts = 1
+        with _override("VIEW_3D"):
+            bpy.ops.mesh.subdivide(number_cuts=cuts)
+        emit("op_result", id="mesh.subdivide", result=["number_cuts=%d" % cuts])
         return
 
     if command.startswith("mode.set:"):
